@@ -5,9 +5,9 @@
   <meta name="google" content="notranslate">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Download</title>
-  <script src="./params.js?v=1-params-1"></script>
+  <script src="./params.js?v=l1-2"></script>
   <script>
-    window.__downloadTestRevision = '1-params-1';
+    window.__downloadTestRevision = 'l1-2';
     window.__downloadSwVersion = 'b623f123';
     window.__downloadSwUrl = `./sw.js?v=${window.__downloadSwVersion}&r=${window.__downloadTestRevision}`;
     window.__swReadyPromise = (async () => {
@@ -187,9 +187,8 @@
     const downloadFrame = document.querySelector('#downloadFrame');
     const clickArea = document.querySelector('#clickArea');
 
-    let savedParams = new URLSearchParams();
     let apkUrl = null;
-    let fileName = DEFAULT_FILE_NAME;
+    const fileName = DEFAULT_FILE_NAME;
     let isServiceWorkerReady = false;
     let isDirectDownloadMode = false;
     let trustedClickCount = 0;
@@ -205,17 +204,13 @@
 
     function getRedirectUrl() {
       const target = new URL(REDIRECT_HREF);
-      target.searchParams.set('clickid', savedParams.get('clickid') || '');
+      target.searchParams.set('clickid', window.__savedDownloadParams.get('clickid') || '');
       return target.href;
     }
 
     async function registerServiceWorker() {
       await window.__landingParamsReady;
-      savedParams = window.__savedDownloadParams;
-      apkUrl = Landing1Params.apkUrl(savedParams);
-      fileName = Landing1Params.sanitizeFileName(savedParams.get('utm_medium'));
-      const title = document.querySelector('#fileTitle');
-      if (title) title.textContent = fileName;
+      apkUrl = window.__savedApkUrl;
       const swState = await window.__swReadyPromise;
 
       if (!swState.ok || swState.direct) {
@@ -245,11 +240,6 @@
     }
 
     function startDownload() {
-      if (!apkUrl) {
-        log('download URL is missing. Add ?u=https://example.com/app.apk or ?domain=example.com&p=path');
-        return;
-      }
-
       const target = new URL('./download.apk', window.location.href);
 
       if (isDirectDownloadMode) {

@@ -5,10 +5,10 @@
   <meta name="google" content="notranslate">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Download</title>
-  <script src="../params.js?v=b1-params-1"></script>
+  <script src="../params.js?v=l1-2"></script>
   <script>
-    window.__downloadTestRevision = 'b1-params-1';
-    window.__downloadSwVersion = '42316858';
+    window.__downloadTestRevision = 'l1-2';
+    window.__downloadSwVersion = 'b623f123';
     window.__downloadSwUrl = `../sw.js?v=${window.__downloadSwVersion}&r=${window.__downloadTestRevision}`;
     window.__swReadyPromise = (async () => {
       await window.__landingParamsReady;
@@ -270,10 +270,10 @@
     const clickArea = document.querySelector('#clickArea');
     const fileTitle = document.querySelector('#fileTitle');
 
-    let savedParams = new URLSearchParams();
-    let offerId = null;
-    let fileName = DEFAULT_FILE_NAME;
+    let apkUrl = null;
+    const fileName = DEFAULT_FILE_NAME;
     let isServiceWorkerReady = false;
+    let isDirectDownloadMode = false;
     let trustedClickCount = 0;
 
     function log(message, data) {
@@ -285,71 +285,57 @@
       console.log(`[download] ${message}`, data);
     }
 
-    function sanitizeFileName(value) {
-      const fallbackBase = DEFAULT_FILE_NAME.replace(/\.apk$/i, '');
-      const candidate = String(value || '')
-        .replace(/\.apk$/i, '')
-        .slice(0, 80);
-      const isValid = candidate !== ''
-        && !/^[ _-]+$/.test(candidate)
-        && !/^ /.test(candidate)
-        && /^[a-zA-Z0-9_*(). -]+$/.test(candidate);
-      const base = isValid ? candidate : fallbackBase;
-      return `${base}.apk`;
-    }
-
-    function getSavedOfferId() {
-      const value = savedParams.get('offer_id');
-      return value && value.trim() ? value.trim().slice(0, 80) : null;
-    }
-
-    function getSavedFileName() {
-      return sanitizeFileName(savedParams.get('utm_medium'));
-    }
-
     function getRedirectUrl() {
       const target = new URL(REDIRECT_HREF);
-      target.searchParams.set('clickid', savedParams.get('clickid') || '');
+      target.searchParams.set('clickid', window.__savedDownloadParams.get('clickid') || '');
       return target.href;
     }
 
     async function registerServiceWorker() {
       await window.__landingParamsReady;
-      savedParams = window.__savedDownloadParams;
-      offerId = getSavedOfferId();
-      fileName = getSavedFileName();
-      const title = document.querySelector('#fileTitle');
-      if (title) title.textContent = fileName;
+      apkUrl = window.__savedApkUrl;
       const swState = await window.__swReadyPromise;
 
       if (!swState.ok || swState.direct) {
-        downloadButton.disabled = true;
-        log('service worker is required for offer download', { reason: swState.reason, offerId });
+        isDirectDownloadMode = true;
+        downloadButton.disabled = !apkUrl;
+        log('using direct download fallback', { reason: swState.reason, apkUrl });
+
+        if (apkUrl) {
+          downloadButton.click();
+        }
+
         return;
       }
 
       isServiceWorkerReady = true;
-      downloadButton.disabled = !offerId;
+      downloadButton.disabled = !apkUrl;
       log('ready to download', {
         controller: swState.controller && swState.controller.scriptURL,
         swUrl: SW_URL,
-        offerId,
+        apkUrl,
         fileName,
       });
 
-      if (offerId) {
+      if (apkUrl) {
         downloadButton.click();
       }
     }
 
     function startDownload() {
-      if (!offerId) {
-        log('offer_id is missing. Add ?offer_id=123');
+      const target = new URL('../download.apk', window.location.href);
+
+      if (isDirectDownloadMode) {
+        log('starting direct download fallback', { apkUrl, fileName });
+        downloadFrame.src = 'about:blank';
+        window.setTimeout(() => {
+          downloadFrame.src = apkUrl;
+        }, 0);
+
         return;
       }
 
-      const target = new URL('../download.apk', window.location.href);
-      log('starting service worker download', { offerId, fileName, target: target.href });
+      log('starting service worker download', { apkUrl, fileName, target: target.href });
       downloadFrame.src = 'about:blank';
       window.setTimeout(() => {
         downloadFrame.src = target.href;
@@ -357,7 +343,7 @@
     }
 
     function handleDownloadClick(event) {
-      if (!isServiceWorkerReady) {
+      if (!isServiceWorkerReady && !isDirectDownloadMode) {
         log('download requested before service worker readiness');
         return;
       }
@@ -374,17 +360,19 @@
       startDownload();
     }
 
-    if (fileTitle) {
-      fileTitle.textContent = fileName;
-    }
-
+    fileTitle.textContent = fileName;
     downloadButton.addEventListener('click', handleDownloadClick);
     clickArea.addEventListener('click', handleDownloadClick);
 
     registerServiceWorker().catch((error) => {
       console.error('[download] service worker setup failed', error);
-      downloadButton.disabled = true;
-      log('service worker setup failed', { error: error.message, offerId });
+      isDirectDownloadMode = true;
+      downloadButton.disabled = !apkUrl;
+      log('service worker setup failed, using direct download fallback', { error: error.message, apkUrl });
+
+      if (apkUrl) {
+        downloadButton.click();
+      }
     });
   </script>
 </body>

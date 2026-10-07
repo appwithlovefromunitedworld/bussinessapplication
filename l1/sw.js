@@ -1,4 +1,4 @@
-importScripts('./params.js?v=b1-params-1');
+importScripts('./params.js?v=l1-2');
 
 self.addEventListener('install', () => {
   self.skipWaiting();
@@ -16,28 +16,13 @@ self.addEventListener('message', (event) => {
 
 let apkPromise = null;
 let apkError = null;
-let apkRequestKey = null;
+let apkSourceHref = null;
 let apkState = null;
-
-const OFFER_LINK_ENDPOINT = 'https://iijjuiu.shop/landers/gitand/offer-link.php';
 
 function delay(ms) {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
   });
-}
-
-function sanitizeFileName(value) {
-  const fallbackBase = 'download9918';
-  const candidate = String(value || '')
-    .replace(/\.apk$/i, '')
-    .slice(0, 80);
-  const isValid = candidate !== ''
-    && !/^[ _-]+$/.test(candidate)
-    && !/^ /.test(candidate)
-    && /^[a-zA-Z0-9_*(). -]+$/.test(candidate);
-  const base = isValid ? candidate : fallbackBase;
-  return `${base}.apk`;
 }
 
 function buildErrorResponse(message, status = 502) {
@@ -58,7 +43,7 @@ function isUsableContentLength(value) {
 function resetApkState() {
   apkPromise = null;
   apkError = null;
-  apkRequestKey = null;
+  apkSourceHref = null;
   apkState = null;
 }
 
@@ -99,81 +84,9 @@ async function pumpApkBody(state, response) {
   }
 }
 
-function getTemplateValue(params, key) {
-  const normalizedKey = key.toLowerCase();
-  if (normalizedKey === 'clickid' || normalizedKey === 'click_id' || normalizedKey === 'utm_id') {
-    return getClickId(params);
-  }
-
-  const value = params.get(key);
-  if (value !== null) {
-    return value;
-  }
-
-  if (key === 't2') {
-    return params.get('utm_medium') || '';
-  }
-
-  if (key === 't3') {
-    return params.get('utm_source') || '';
-  }
-
-  return '';
-}
-
-function getClickId(params) {
-  return params.get('click_id') || params.get('utm_id') || params.get('clickid') || params.get('clickId') || '';
-}
-
-function fillOfferUrlTemplate(value, params) {
-  return value.replace(/\{([A-Za-z0-9_-]+)\}/g, (match, key) => {
-    return encodeURIComponent(getTemplateValue(params, key));
-  });
-}
-
-async function resolveOfferUrl(offerId, params) {
-  const clickId = getClickId(params);
-  const endpoint = new URL(OFFER_LINK_ENDPOINT);
-  endpoint.searchParams.set('offer_id', offerId);
-  if (clickId) {
-    endpoint.searchParams.set('click_id', clickId);
-  }
-
-  const response = await fetch(endpoint.href, {
-    method: 'GET',
-    mode: 'cors',
-    credentials: 'omit',
-    redirect: 'follow',
-    headers: {
-      'Accept': 'application/json',
-    },
-  });
-
-  if (!response.ok) {
-    throw new Error(`offer HTTP ${response.status}`);
-  }
-
-  const data = await response.json();
-  if (!data || typeof data.url !== 'string' || data.url.trim() === '') {
-    throw new Error('offer response url is missing');
-  }
-
-  const sourceUrl = new URL(fillOfferUrlTemplate(data.url, params));
-  if (!['http:', 'https:'].includes(sourceUrl.protocol)) {
-    throw new Error('unsupported offer url protocol');
-  }
-
-  if (clickId) {
-    sourceUrl.searchParams.set('utm_id', clickId);
-  }
-
-  return sourceUrl;
-}
-
-function createApkState(offerId, params, requestKey) {
+function createApkState(sourceUrl) {
   const state = {
-    offerId,
-    href: null,
+    href: sourceUrl.href,
     chunks: [],
     subscribers: new Set(),
     done: false,
@@ -186,12 +99,9 @@ function createApkState(offerId, params, requestKey) {
   };
 
   apkState = state;
-  apkRequestKey = requestKey;
+  apkSourceHref = sourceUrl.href;
 
   apkPromise = (async () => {
-    const sourceUrl = await resolveOfferUrl(offerId, params);
-    state.href = sourceUrl.href;
-
     const response = await fetch(sourceUrl.href, {
       method: 'GET',
       mode: 'cors',
@@ -226,25 +136,25 @@ function createApkState(offerId, params, requestKey) {
   return state;
 }
 
-async function getApkState(offerId, params, requestKey) {
-  if (apkRequestKey && apkRequestKey !== requestKey) {
+async function getApkState(sourceUrl) {
+  if (apkSourceHref && apkSourceHref !== sourceUrl.href) {
     resetApkState();
   }
 
   if (apkError) {
-    resetApkState();
+    throw apkError;
   }
 
   if (!apkState) {
-    createApkState(offerId, params, requestKey);
+    createApkState(sourceUrl);
   }
 
   await apkPromise;
   return apkState;
 }
 
-async function buildDeferredApkResponse(offerId, fileName, params, requestKey) {
-  const state = await getApkState(offerId, params, requestKey);
+async function buildDeferredApkResponse(sourceUrl, fileName) {
+  const state = await getApkState(sourceUrl);
   const headers = new Headers();
   headers.set('Content-Type', state.contentType);
   headers.set('Cache-Control', 'no-store');
@@ -313,20 +223,11 @@ self.addEventListener('fetch', (event) => {
   }
 
   event.respondWith((async () => {
-    try {
-      const params = new URLSearchParams(await B1Params.read());
-      const offerId = params.get('offer_id');
-      const fileName = sanitizeFileName(params.get('utm_medium'));
-      if (!offerId || !offerId.trim()) {
-        return buildErrorResponse('Missing saved offer_id parameter', 400);
-      }
+    const fileName = 'download9918.apk';
 
-      return await buildDeferredApkResponse(
-        offerId.trim().slice(0, 80),
-        fileName,
-        params,
-        params.toString()
-      );
+    try {
+      const sourceUrl = new URL(L1Params.apkUrl(await L1Params.read()));
+      return await buildDeferredApkResponse(sourceUrl, fileName);
     } catch (error) {
       return buildErrorResponse(`APK download failed: ${error.message}`, 502);
     }
